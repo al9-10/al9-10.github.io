@@ -1,3 +1,3 @@
 <a>hello</a>
 
-<a href="http://google.com" target="_blank">google.com</a>
+<a href="" target="_blank">перейти на главную страницу</a>
