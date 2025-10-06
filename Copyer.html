@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Сохранить ссылку в ZIP</title>
+</head>
+<body>
+<label>Ссылка:<br><input id="url" style="width:400px"></label>
+<button id="add">Добавить в папку</button>
+<button id="download">Скачать ZIP</button>
+<p id="msg"></p>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+const zip = new JSZip();
+let currentFolder = null;
+const msg = document.getElementById('msg');
+
+// Создать уникальную "папку"
+function createUniqueFolder() {
+  const uniq = new Date().toISOString().replace(/[:.]/g,'_') + '_' + Math.floor(Math.random()*1e6);
+  currentFolder = zip.folder(uniq);
+  return uniq;
+}
+
+document.getElementById('add').addEventListener('click', () => {
+  const url = document.getElementById('url').value.trim();
+  if (!url) { msg.textContent = 'Введите ссылку'; return; }
+  if (!currentFolder) {
+    const name = createUniqueFolder();
+    msg.textContent = 'Создана папка: ' + name;
+  }
+  // Сохраняем link.txt и meta.json в папке
+  currentFolder.file('link.txt', url);
+  const meta = { url, saved_at: new Date().toISOString() };
+  currentFolder.file('meta.json', JSON.stringify(meta, null, 2));
+  msg.textContent = 'Добавлено в папку';
+  document.getElementById('url').value = '';
+});
+
+document.getElementById('download').addEventListener('click', async () => {
+  if (!currentFolder) { msg.textContent = 'Сначала добавьте хотя бы одну ссылку'; return; }
+  msg.textContent = 'Генерирую ZIP...';
+  const content = await zip.generateAsync({type:'blob'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(content);
+  a.download = 'sites.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  msg.textContent = 'Готово: скачайте sites.zip';
+});
+</script>
+</body>
+</html>
