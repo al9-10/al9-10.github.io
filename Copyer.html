@@ -1,38 +1,141 @@
 <!doctype html>
-<html>
+<html lang="ru">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Downloader — al9-10.github.io</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:24px;max-width:900px}
+  input{width:80%} button{margin-left:8px}
+  textarea{width:100%;height:80px;margin-top:8px}
+  .row{margin:12px 0}
+  a.file{display:block;margin:6px 0}
+</style>
+</head>
 <body>
-<label>URL файла:<br><input id="url" style="width:480px"></label>
-<button id="go">Скачать</button>
-<div id="msg"></div>
+<h1>Скачивание файлов (только HTML/JS)</h1>
+
+<div class="row">
+  <label>URL файла:<br>
+    <input id="url" placeholder="https://example.com/file.jpg">
+    <button id="downloadBtn">Скачать</button>
+    <button id="addZipBtn">Добавить в ZIP</button>
+  </label>
+</div>
+
+<div class="row">
+  <label>Список URL (по одному в строке) — для ZIP:<br>
+    <textarea id="multi"></textarea>
+  </label>
+  <div style="margin-top:8px">
+    <button id="zipFromList">Скачать ZIP из списка</button>
+    <button id="makeFolderZip">Создать ZIP как sites/&lt;uniq&gt;/...</button>
+  </div>
+</div>
+
+<div id="out"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
-document.getElementById('go').onclick = async () => {
-  const url = document.getElementById('url').value.trim();
-  if (!url) { document.getElementById('msg').textContent='Введите URL'; return; }
-  // Пробуем получить имя файла
-  const a = document.createElement('a');
-  a.href = url;
-  // Указание target='_blank' часто нужно, чтобы браузер разрешил переход
-  a.target = '_blank';
-  // Для современных браузеров можно инициировать скачивание через fetch+blob:
+const out = document.getElementById('out');
+function log(t){ out.innerHTML = t; }
+
+// Попытка скачать через fetch -> blob -> download
+async function fetchAndDownload(url){
   try {
     const res = await fetch(url, {mode:'cors'});
-    if (!res.ok) throw new Error(res.status+' '+res.statusText);
+    if (!res.ok) throw new Error('HTTP '+res.status);
     const blob = await res.blob();
-    const fname = (url.split('/').pop() || 'file').split('?')[0] || 'file';
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = fname;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(link.href);
-    document.getElementById('msg').textContent = 'Загрузка начата';
-  } catch(err){
-    // Если fetch блокируется CORS, откроем прямой переход
+    const name = (new URL(url)).pathname.split('/').pop().split('?')[0] || 'file';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    log('Скачивание начато: ' + name);
+  } catch(e){
+    // Если CORS или другая ошибка — открываем в новой вкладке
     window.open(url, '_blank');
-    document.getElementById('msg').textContent = 'Открыто в новой вкладке (CORS мог помешать fetch)';
+    log('Не удалось скачать напрямую (CORS/ошибка). Открыто в новой вкладке.');
   }
+}
+
+// Добавить один URL в переданный JSZip instance под указанным путём
+async function addUrlToZip(zip, url, zipPath=''){
+  const name = (new URL(url)).pathname.split('/').pop().split('?')[0] || 'file';
+  try {
+    const res = await fetch(url, {mode:'cors'});
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    const ab = await res.arrayBuffer();
+    zip.file(zipPath + name, ab);
+    zip.file(zipPath + 'meta.json', JSON.stringify({url:url, saved_at: new Date().toISOString()}, null, 2));
+    return {ok:true, name};
+  } catch(err){
+    return {ok:false, error: err.message};
+  }
+}
+
+document.getElementById('downloadBtn').onclick = () => {
+  const url = document.getElementById('url').value.trim();
+  if (!url) { log('Введите URL'); return; }
+  fetchAndDownload(url);
+};
+
+document.getElementById('addZipBtn').onclick = async () => {
+  const url = document.getElementById('url').value.trim();
+  if (!url) { log('Введите URL'); return; }
+  const zip = new JSZip();
+  log('Загружаю в ZIP...');
+  const r = await addUrlToZip(zip, url);
+  if (!r.ok) { log('Ошибка: ' + r.error); return; }
+  const blob = await zip.generateAsync({type:'blob'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'file.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  log('ZIP готов: ' + r.name);
+};
+
+document.getElementById('zipFromList').onclick = async () => {
+  const txt = document.getElementById('multi').value.trim();
+  if (!txt) { log('Введите список URL'); return; }
+  const urls = txt.split('\n').map(s=>s.trim()).filter(Boolean);
+  const zip = new JSZip();
+  log('Загружаю ' + urls.length + ' файлов...');
+  for (const u of urls){
+    const r = await addUrlToZip(zip, u);
+    if (!r.ok) { log('Ошибка при '+u+': '+r.error); return; }
+  }
+  const blob = await zip.generateAsync({type:'blob'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'files.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  log('ZIP готов ('+urls.length+' файлов)');
+};
+
+document.getElementById('makeFolderZip').onclick = async () => {
+  const txt = document.getElementById('multi').value.trim();
+  const single = document.getElementById('url').value.trim();
+  const list = txt ? txt.split('\n').map(s=>s.trim()).filter(Boolean) : (single ? [single] : []);
+  if (!list.length) { log('Нет URL для добавления'); return; }
+  const zip = new JSZip();
+  const uniq = 'sites/' + new Date().toISOString().replace(/[:.]/g,'_') + '_' + Math.floor(Math.random()*1e6) + '/';
+  log('Создаю папку: ' + uniq);
+  for (const u of list){
+    const r = await addUrlToZip(zip, u, uniq);
+    if (!r.ok) { log('Ошибка при '+u+': '+r.error); return; }
+  }
+  const blob = await zip.generateAsync({type:'blob'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'sites.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  log('ZIP с папкой "'+uniq+'" готов ('+list.length+' файлов)');
 };
 </script>
 </body>
